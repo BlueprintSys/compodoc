@@ -8,6 +8,7 @@ import { ts, SyntaxKind } from 'ts-simple-ast';
 const chokidar = require('chokidar');
 const marked = require('marked');
 const traverse = require('traverse');
+const htmlparser = require('htmlparser');
 
 import { logger } from '../logger';
 import { HtmlEngine } from './engines/html.engine';
@@ -1197,6 +1198,8 @@ at least one config for the 'info' or 'source' tab in --navTabConfig.`);
             ? someComponents
             : this.dependenciesEngine.getComponents();
 
+        const componentsUsage = [];
+
         return new Promise((mainResolve, reject) => {
             let i = 0;
             let len = this.configuration.mainData.components.length;
@@ -1217,80 +1220,125 @@ at least one config for the 'info' or 'source' tab in --navTabConfig.`);
                             component.file
                         );
                         component.readme = marked(readmeFile);
-                        let page = {
-                            path: 'components',
-                            name: component.name,
-                            id: component.id,
-                            navTabs: this.getNavTabs(component),
-                            context: 'component',
-                            component: component,
-                            depth: 1,
-                            pageType: COMPODOC_DEFAULTS.PAGE_TYPES.INTERNAL
-                        };
-                        if (component.isDuplicate) {
-                            page.name += '-' + component.duplicateId;
-                        }
-                        this.configuration.addPage(page);
-                        if (component.templateUrl.length > 0) {
-                            logger.info(
-                                ` ${
-                                    component.name
-                                } has a templateUrl, include it`
-                            );
-                            this.handleTemplateurl(component).then(
-                                () => {
-                                    i++;
-                                    loop();
-                                },
-                                e => {
-                                    logger.error(e);
+                    }
+                    let page = {
+                        path: 'components',
+                        name: component.name,
+                        id: component.id,
+                        navTabs: this.getNavTabs(component),
+                        context: 'component',
+                        component: component,
+                        depth: 1,
+                        pageType: COMPODOC_DEFAULTS.PAGE_TYPES.INTERNAL
+                    };
+                    if (component.isDuplicate) {
+                        page.name += '-' + component.duplicateId;
+                    }
+                    this.configuration.addPage(page);
+                    if (component.templateUrl.length > 0) {
+                        logger.info(
+                            ` ${
+                                component.name
+                            } has a templateUrl, include it`
+                        );
+                        this.handleTemplateurl(component).then(
+                            () => {
+                                const componentsUsed = this.getComponentsUsed(component);
+                                if (componentsUsed) {
+                                    component.componentsUsed = componentsUsed;
+                                    componentsUsage.push({
+                                        name: component.name,
+                                        selector: component.selector,
+                                        componentsUsed
+                                    });
                                 }
-                            );
-                        } else {
-                            i++;
-                            loop();
-                        }
+                                i++;
+                                loop();
+                            },
+                            e => {
+                                logger.error(e);
+                            }
+                        );
                     } else {
-                        let page = {
-                            path: 'components',
-                            name: component.name,
-                            id: component.id,
-                            navTabs: this.getNavTabs(component),
-                            context: 'component',
-                            component: component,
-                            depth: 1,
-                            pageType: COMPODOC_DEFAULTS.PAGE_TYPES.INTERNAL
-                        };
-                        if (component.isDuplicate) {
-                            page.name += '-' + component.duplicateId;
+                        const componentsUsed = this.getComponentsUsed(component);
+                        if (componentsUsed) {
+                            component.componentsUsed = componentsUsed;
+                            componentsUsage.push({
+                                name: component.name,
+                                selector: component.selector,
+                                componentsUsed
+                            });
                         }
-                        this.configuration.addPage(page);
-                        if (component.templateUrl.length > 0) {
-                            logger.info(
-                                ` ${
-                                    component.name
-                                } has a templateUrl, include it`
-                            );
-                            this.handleTemplateurl(component).then(
-                                () => {
-                                    i++;
-                                    loop();
-                                },
-                                e => {
-                                    logger.error(e);
-                                }
-                            );
-                        } else {
-                            i++;
-                            loop();
-                        }
+                        i++;
+                        loop();
                     }
                 } else {
-                    mainResolve();
+                    let outputFolder = this.configuration.mainData.output;
+                    let testOutputDir = outputFolder.match(process.cwd());
+
+                    if (testOutputDir && testOutputDir.length > 0) {
+                        outputFolder = outputFolder.replace(process.cwd() + path.sep, '');
+                    }
+
+                    this.fileEngine.write(
+                        outputFolder + path.sep + '/componentsUsage.json',
+                        JSON.stringify(componentsUsage, undefined, 4)
+                    ).then(() => {
+                        mainResolve();
+                    });
                 }
             };
             loop();
         });
+    }
+
+    private static IgnoreTags = [
+        // from https://developer.mozilla.org/en-US/docs/Web/HTML/Element
+        'a','abbr','acronym','address','applet','area','article','aside','audio','b','base','basefont','bdi','bdo','bgsound','big','blink','blockquote','body',
+        'br','button','canvas','caption','center','cite','code','col','colgroup','command','content','data','datalist','dd','del','details','dfn','dialog',
+        'dir','div','dl','dt','element','em','embed','fieldset','figcaption','figure','font','footer','form','frame','frameset','h1','head','header','hgroup',
+        'hr','html','i','iframe','image','img','input','ins','isindex','kbd','keygen','label','legend','li','link','listing','main','map','mark','marquee',
+        'menu','menuitem','meta','meter','multicol','nav','nextid','nobr','noembed','noframes','noscript','object','ol','optgroup','option','output','p',
+        'param','picture','plaintext','pre','progress','q','rp','rt','rtc','ruby','s','samp','script','section','select','shadow','slot','small','source',
+        'spacer','span','strike','strong','style','sub','summary','sup','table','tbody','td','template','textarea','tfoot','th','thead','time','title','tr',
+        'track','tt','u','ul','var','video','wbr','xmp',
+        // Others
+        'h2','h3','h4','h5','h6',
+        'ng-container','ng-content','ng-template','router-outlet'
+    ];
+
+    private getComponentsUsed(component): string[] | undefined {
+        const template = component.template || component.templateData;
+        if (!template) {
+            return undefined;
+        }
+
+        const handler = new htmlparser.DefaultHandler(function (error, dom) {
+            if (error) {
+                logger.error('handler ko');
+            }
+        });
+        const parser = new htmlparser.Parser(handler);
+        parser.parseComplete(template);
+        let result;
+        const recurse = (node, fn: (node) => void) => {
+            fn(node);
+            if (node.children) {
+                node.children.forEach((child) => recurse(child, fn));
+            }
+        };
+        handler.dom.forEach((root) => recurse(root, (node) => {
+            if (node.type === 'tag' &&
+                (!result || result.indexOf(node.name) === -1) &&
+                Application.IgnoreTags.indexOf(node.name) === -1) {
+                if (result) {
+                    result.push(node.name);
+                } else {
+                    result = [node.name];
+                }
+            }
+        }));
+        return result;
     }
 
     public prepareDirectives(someDirectives?) {
