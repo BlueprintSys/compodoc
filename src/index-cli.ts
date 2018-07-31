@@ -1,17 +1,14 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import * as _ from 'lodash';
 
 import { Application } from './app/application';
 
 import { COMPODOC_DEFAULTS } from './utils/defaults';
 import { logger } from './logger';
 import { readConfig, handlePath } from './utils/utils';
-import { FileEngine } from './app/engines/file.engine';
-import { ExcludeParserUtil } from './utils/exclude-parser.util';
-import { IncludeParserUtil } from './utils/include-parser.util';
 
 import { ts } from 'ts-simple-ast';
+import { ParserUtil } from './utils/parser.util.class';
 
 const pkg = require('../package.json');
 const program = require('commander');
@@ -118,6 +115,8 @@ Note: Certain tabs will only be shown if applicable to a given dependency`,
                 'Test command of documentation coverage (global or per file) will fail with error or just warn user (true: error, false: warn)',
                 COMPODOC_DEFAULTS.coverageTestThresholdFail
             )
+			      .option('--unitTestCoverage [json-summary]',
+									 'To include unit test coverage, specify istanbul JSON coverage summary file')
             .option(
                 '--disableSourceCode',
                 'Do not add source code tab and links to source code',
@@ -140,6 +139,8 @@ Note: Certain tabs will only be shown if applicable to a given dependency`,
                 'Do not add the routes graph',
                 COMPODOC_DEFAULTS.disableRoutesGraph
             )
+            .option('--disableSearch', 'Do not add the search input', false)
+            .option('--minimal', 'Minimal mode with only documentation. No search, no graph, no coverage.', false)
             .option('--customFavicon [path]', 'Use a custom favicon')
             .option('--gaID [id]', 'Google Analytics tracking ID')
             .option('--gaSite [site]', 'Google Analytics site name', COMPODOC_DEFAULTS.gaSite)
@@ -340,6 +341,13 @@ Note: Certain tabs will only be shown if applicable to a given dependency`,
                 program.coverageTestThresholdFail === 'false' ? false : true;
         }
 
+			  if (configFile.unitTestCoverage) {
+						this.configuration.mainData.unitTestCoverage = configFile.unitTestCoverage;
+				}
+			  if (program.unitTestCoverage) {
+						this.configuration.mainData.unitTestCoverage = program.unitTestCoverage;
+				}
+
 
         if (configFile.disableSourceCode) {
             this.configuration.mainData.disableSourceCode = configFile.disableSourceCode;
@@ -420,6 +428,25 @@ Note: Certain tabs will only be shown if applicable to a given dependency`,
             this.configuration.mainData.disableRoutesGraph = program.disableRoutesGraph;
         }
 
+        if (configFile.disableSearch) {
+            this.configuration.mainData.disableSearch = configFile.disableSearch;
+        }
+        if (program.disableSearch) {
+            this.configuration.mainData.disableSearch = program.disableSearch;
+        }
+
+        if (configFile.minimal) {
+            this.configuration.mainData.disableSearch = true;
+            this.configuration.mainData.disableRoutesGraph = true;
+            this.configuration.mainData.disableGraph = true;
+            this.configuration.mainData.disableCoverage = true;
+        }
+        if (program.minimal) {
+            this.configuration.mainData.disableSearch = true;
+            this.configuration.mainData.disableRoutesGraph = true;
+            this.configuration.mainData.disableGraph = true;
+            this.configuration.mainData.disableCoverage = true;
+        }
 
         if (configFile.customFavicon) {
             this.configuration.mainData.customFavicon = configFile.customFavicon;
@@ -560,13 +587,24 @@ Note: Certain tabs will only be shown if applicable to a given dependency`,
                         includeFiles = tsConfigFile.include || [];
                         scannedFiles = [];
 
-                        let excludeParser = new ExcludeParserUtil(),
-                            includeParser = new IncludeParserUtil();
+                        let excludeParser = new ParserUtil(),
+                            includeParser = new ParserUtil();
 
                         excludeParser.init(excludeFiles, cwd);
                         includeParser.init(includeFiles, cwd);
 
-                        let finder = require('findit2')(cwd || '.');
+                        let startCwd = cwd;
+
+                        let excludeParserTestFilesWithCwdDepth = excludeParser.testFilesWithCwdDepth();
+                        if (!excludeParserTestFilesWithCwdDepth.status) {
+                            startCwd = excludeParser.updateCwd(cwd, excludeParserTestFilesWithCwdDepth.level);
+                        }
+                        let includeParserTestFilesWithCwdDepth = includeParser.testFilesWithCwdDepth();
+                        if (!includeParser.testFilesWithCwdDepth().status) {
+                            startCwd = includeParser.updateCwd(cwd, includeParserTestFilesWithCwdDepth.level);
+                        }
+
+                        let finder = require('findit2')(startCwd || '.');
 
                         finder.on('directory', function(dir, stat, stop) {
                             let base = path.basename(dir);
@@ -670,13 +708,24 @@ Note: Certain tabs will only be shown if applicable to a given dependency`,
                             includeFiles = tsConfigFile.include || [];
                             scannedFiles = [];
 
-                            let excludeParser = new ExcludeParserUtil(),
-                                includeParser = new IncludeParserUtil();
+                            let excludeParser = new ParserUtil(),
+                                includeParser = new ParserUtil();
 
                             excludeParser.init(excludeFiles, cwd);
                             includeParser.init(includeFiles, cwd);
 
-                            let finder = require('findit2')(path.resolve(sourceFolder));
+                            let startCwd = sourceFolder;
+
+                            let excludeParserTestFilesWithCwdDepth = excludeParser.testFilesWithCwdDepth();
+                            if (!excludeParserTestFilesWithCwdDepth.status) {
+                                startCwd = excludeParser.updateCwd(cwd, excludeParserTestFilesWithCwdDepth.level);
+                            }
+                            let includeParserTestFilesWithCwdDepth = includeParser.testFilesWithCwdDepth();
+                            if (!includeParser.testFilesWithCwdDepth().status) {
+                                startCwd = includeParser.updateCwd(cwd, includeParserTestFilesWithCwdDepth.level);
+                            }
+
+                            let finder = require('findit2')(path.resolve(startCwd));
 
                             finder.on('directory', function(dir, stat, stop) {
                                 let base = path.basename(dir);

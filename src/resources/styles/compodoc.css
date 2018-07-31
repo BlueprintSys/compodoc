@@ -202,7 +202,7 @@ a[href] {
     height: 100%;
 }
 
-.content-data iframe {
+.content-data .exampleContainer {
     height: 100%;
     width: 100%;
 }
@@ -211,25 +211,9 @@ a[href] {
  * Icons
  */
 
-.glyphicon, .fa {
+.glyphicon, .icon {
     margin-right: 10px;
 }
-
-.fa-code-fork {
-    margin-right: 14px;
-}
-
-.fa-long-arrow-down {
-    margin-right: 16px;
-}
-
-.fa-file-text-o {
-    margin-left: 2px;
-}
-.fa-file-text-o.fa-fw {
-    margin-left: -1px;
-}
-
 
 /**
  * Menu
@@ -404,7 +388,7 @@ a[href] {
 .menu-toggler {
     cursor: pointer;
 }
-.menu-toggler .fa-angle-down, .menu-toggler .fa-angle-up {
+.menu-toggler .ion-ios-arrow-down, .menu-toggler .ion-ios-arrow-up {
     cursor: pointer;
     padding: 5px 10px;
     font-size: 16px;
@@ -413,8 +397,13 @@ a[href] {
     top: 7px;
 }
 
-.overview .card-title .fa {
+.overview .card-title .icon {
     font-size: 50px;
+}
+
+.overview .card-text a {
+    text-decoration: underline;
+    color: black;
 }
 
 .breadcrumb {
@@ -592,17 +581,25 @@ i {
     text-decoration: underline;
 }
 
-.coverage tr.low {
+.coverage tr.low,
+.coverage td.low {
     background: rgba(216, 96, 75, 0.75);
 }
-.coverage tr.medium {
+.coverage tr.medium,
+.coverage td.medium {
     background: rgba(218, 178, 38, 0.75);
 }
-.coverage tr.good {
+.coverage tr.good,
+.coverage td.good {
     background: rgba(143, 189, 8, 0.75);
 }
-.coverage tr.very-good {
+.coverage tr.very-good,
+.coverage td.very-good {
     background: rgba(77, 199, 31, 0.75);
+}
+
+.coverage td.uncovered {
+	background: rgba(221, 221, 221, 0.75);
 }
 
 .coverage-header {
@@ -703,13 +700,10 @@ th[role=columnheader].statements:not(.no-sort):after {
 .modifier-icon.method.export {
     display: none;
 }
-.modifier-icon.method .fa-circle, .modifier-icon.method .fa-square {
+.modifier-icon.method .ion-ios-radio-button-off, .modifier-icon.method .ion-ios-square-outline {
     display: none;
 }
-.modifier-icon.method .fa-lock {
-    margin-right: 0;
-}
-.modifier-icon.fa-reset {
+.modifier-icon.method .ion-ios-lock {
     margin-right: 0;
 }
 
@@ -717,7 +711,7 @@ th[role=columnheader].statements:not(.no-sort):after {
  * Modules
  */
 .card-module {
-    min-hight: 323px
+    min-height: 323px
 }
 
 /**

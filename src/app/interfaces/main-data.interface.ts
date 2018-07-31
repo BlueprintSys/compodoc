@@ -25,6 +25,7 @@ export interface MainDataInterface {
     directives: any;
     injectables: any;
     interceptors: any;
+    guards: any;
     miscellaneous: any;
     routes: any;
     tsconfig: string;
@@ -44,6 +45,7 @@ export interface MainDataInterface {
     disableInternal: boolean;
     disableLifeCycleHooks: boolean;
     disableRoutesGraph: boolean;
+    disableSearch: boolean;
     watch: boolean;
     mainGraph: string;
     coverageTest: boolean;
@@ -51,6 +53,8 @@ export interface MainDataInterface {
     coverageTestThresholdFail: boolean;
     coverageTestPerFile: boolean;
     coverageMinimumPerFile: number;
+		unitTestCoverage: string;
+		unitTestData: Object;
     routesLength: number;
     angularVersion: string;
     exportFormat: string;
@@ -60,4 +64,6 @@ export interface MainDataInterface {
     packagePeerDependencies: Object[];
     gaID: string;
     gaSite: string;
+    angularProject: boolean;
+    angularJSProject: boolean;
 }

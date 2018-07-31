@@ -4,23 +4,16 @@ import * as util from 'util';
 import * as _ from 'lodash';
 import Ast, { ts, TypeGuards, SyntaxKind } from 'ts-simple-ast';
 
+import { Configuration } from '../configuration';
 import { compilerHost, detectIndent } from '../../utilities';
 import { logger } from '../../logger';
 import { markedtags, mergeTagsAndArgs, cleanLifecycleHooksFromMethods } from '../../utils/utils';
 import { kindToType } from '../../utils/kind-to-type';
 import { ExtendsMerger } from '../../utils/extends-merger.util';
-import { CodeGenerator } from './code-generator';
-import { Configuration } from '../configuration';
 import { $componentsTreeEngine } from '../engines/components-tree.engine';
-import { DirectiveDepFactory } from './deps/directive-dep.factory';
-import { ComponentHelper, ComponentCache } from './deps/helpers/component-helper';
-import { ModuleDepFactory } from './deps/module-dep.factory';
-import { ComponentDepFactory } from './deps/component-dep.factory';
-import { ModuleHelper } from './deps/helpers/module-helper';
-import { JsDocHelper } from './deps/helpers/js-doc-helper';
-import { SymbolHelper } from './deps/helpers/symbol-helper';
-import { ClassHelper } from './deps/helpers/class-helper';
-import { ConfigurationInterface } from '../interfaces/configuration.interface';
+
+import { FrameworkDependencies } from './framework-dependencies';
+
 import {
     JsdocParserUtil,
     RouterParserUtil,
@@ -30,6 +23,20 @@ import {
     hasSpreadElementInArray,
     isIgnore
 } from '../../utils';
+
+import { CodeGenerator } from './angular/code-generator';
+
+import { DirectiveDepFactory } from './angular/deps/directive-dep.factory';
+import { ComponentHelper, ComponentCache } from './angular/deps/helpers/component-helper';
+import { ModuleDepFactory } from './angular/deps/module-dep.factory';
+import { ComponentDepFactory } from './angular/deps/component-dep.factory';
+import { ModuleHelper } from './angular/deps/helpers/module-helper';
+import { JsDocHelper } from './angular/deps/helpers/js-doc-helper';
+import { SymbolHelper } from './angular/deps/helpers/symbol-helper';
+import { ClassHelper } from './angular/deps/helpers/class-helper';
+
+import { ConfigurationInterface } from '../interfaces/configuration.interface';
+
 import {
     IInjectableDep,
     IPipeDep,
@@ -38,7 +45,7 @@ import {
     IFunctionDecDep,
     IEnumDecDep,
     ITypeAliasDecDep
-} from './dependencies.interfaces';
+} from './angular/dependencies.interfaces';
 
 const crypto = require('crypto');
 const marked = require('marked');
@@ -46,43 +53,25 @@ const ast = new Ast();
 
 // TypeScript reference : https://github.com/Microsoft/TypeScript/blob/master/lib/typescript.d.ts
 
-export class Dependencies {
-    private files: string[];
-    private program: ts.Program;
-    private typeChecker: ts.TypeChecker;
+export class AngularDependencies extends FrameworkDependencies {
     private engine: any;
     private cache: ComponentCache = new ComponentCache();
-    private componentHelper: ComponentHelper;
     private moduleHelper = new ModuleHelper(this.cache);
     private jsDocHelper = new JsDocHelper();
     private symbolHelper = new SymbolHelper();
-    private classHelper: ClassHelper;
-    private extendsMerger: ExtendsMerger;
-
     private jsdocParserUtil = new JsdocParserUtil();
     private importsUtil = new ImportsUtil();
 
     constructor(
         files: string[],
         options: any,
-        private configuration: ConfigurationInterface,
-        private routerParser: RouterParserUtil
+        configuration: ConfigurationInterface,
+        routerParser: RouterParserUtil
     ) {
-        this.files = files;
-        const transpileOptions = {
-            target: ts.ScriptTarget.ES5,
-            module: ts.ModuleKind.CommonJS,
-            tsconfigDirectory: options.tsconfigDirectory
-        };
-        this.program = ts.createProgram(
-            this.files,
-            transpileOptions,
-            compilerHost(transpileOptions)
-        );
-        this.typeChecker = this.program.getTypeChecker();
-        this.classHelper = new ClassHelper(this.typeChecker, this.configuration);
-        this.componentHelper = new ComponentHelper(this.classHelper);
-        this.extendsMerger = new ExtendsMerger();
+        super(files,
+            options,
+            configuration,
+            routerParser);
     }
 
     public getDependencies() {
@@ -92,6 +81,7 @@ export class Dependencies {
             components: [],
             injectables: [],
             interceptors: [],
+            guards: [],
             pipes: [],
             directives: [],
             routes: [],
@@ -112,12 +102,17 @@ export class Dependencies {
             let filePath = file.fileName;
 
             if (path.extname(filePath) === '.ts') {
-                if (
-                    filePath.lastIndexOf('.d.ts') === -1 &&
-                    filePath.lastIndexOf('spec.ts') === -1
-                ) {
+                if (!this.configuration.mainData.angularJSProject && path.extname(filePath) === '.js') {
                     logger.info('parsing', filePath);
                     this.getSourceFileDecorators(file, deps);
+                } else {
+                    if (
+                        filePath.lastIndexOf('.d.ts') === -1 &&
+                        filePath.lastIndexOf('spec.ts') === -1
+                    ) {
+                        logger.info('parsing', filePath);
+                        this.getSourceFileDecorators(file, deps);
+                    }
                 }
             }
 
@@ -221,6 +216,8 @@ export class Dependencies {
             type: 'class',
             sourceCode: srcFile.getText()
         };
+        let excludeFromClassArray = false;
+
         if (IO.constructor) {
             deps.constructorObj = IO.constructor;
         }
@@ -242,9 +239,6 @@ export class Dependencies {
         if (IO.jsdoctags && IO.jsdoctags.length > 0) {
             deps.jsdoctags = IO.jsdoctags[0].tags;
         }
-        if (IO.implements && IO.implements.length > 0) {
-            deps.implements = IO.implements;
-        }
         if (IO.accessors) {
             deps.accessors = IO.accessors;
         }
@@ -263,9 +257,23 @@ export class Dependencies {
         if (this.configuration.mainData.disableLifeCycleHooks) {
             deps.methods = cleanLifecycleHooksFromMethods(deps.methods);
         }
+        if (IO.implements && IO.implements.length > 0) {
+            deps.implements = IO.implements;
+
+            if (this.isGuard(IO.implements)) {
+                // We don't want the Guard to show up in the Classes menu
+                excludeFromClassArray = true;
+                deps.type = 'guard';
+
+                outputSymbols.guards.push(deps);
+            }
+        }
         if (typeof IO.ignore === 'undefined') {
             this.debug(deps);
-            outputSymbols.classes.push(deps);
+
+            if (!excludeFromClassArray) {
+                outputSymbols.classes.push(deps);
+            }
         } else {
             this.ignore(deps);
         }
@@ -396,12 +404,15 @@ export class Dependencies {
                             }
                             deps = injectableDeps;
                             if (typeof IO.ignore === 'undefined') {
-                                if (IO.implements && _.indexOf(IO.implements, 'HttpInterceptor') >= 0) {
+                                if (_.includes(IO.implements, 'HttpInterceptor')) {
                                     injectableDeps.type = 'interceptor';
                                     outputSymbols.interceptors.push(injectableDeps);
+                                } else if (this.isGuard(IO.implements)) {
+                                    injectableDeps.type = 'guard';
+                                    outputSymbols.guards.push(injectableDeps);
                                 } else {
                                     injectableDeps.type = 'injectable';
-                                    outputSymbols.injectables.push(injectableDeps);
+                                    this.addNewEntityInStore(injectableDeps, outputSymbols.injectables);
                                 }
                             }
                         } else if (this.isPipe(metadata)) {
@@ -742,6 +753,23 @@ export class Dependencies {
         });
     }
 
+    /**
+     * Function to in a specific store an entity, and check before is there is not the same one
+     * in that store : same name, id and file
+     * @param entity Entity to store
+     * @param store Store
+     */
+    private addNewEntityInStore(entity, store) {
+        let findSameEntityInStore = _.filter(store, {
+            name: entity.name,
+            id: entity.id,
+            file: entity.file
+        });
+        if (findSameEntityInStore.length === 0) {
+            store.push(entity);
+        }
+    }
+
     private debug(deps: IDep) {
         if (deps) {
             logger.debug('found', `${deps.name}`);
@@ -840,6 +868,14 @@ export class Dependencies {
 
     private isInjectable(metadatas) {
         return this.parseDecorators(metadatas, 'Injectable');
+    }
+
+    private isGuard (ioImplements: string[]): boolean {
+        return _.includes(ioImplements, 'CanActivate') ||
+            _.includes(ioImplements, 'CanActivateChild') ||
+            _.includes(ioImplements, 'CanDeactivate') ||
+            _.includes(ioImplements, 'Resolve') ||
+            _.includes(ioImplements, 'CanLoad');
     }
 
     private isModule(metadatas) {
@@ -1009,8 +1045,8 @@ export class Dependencies {
                     name: node.declarationList.declarations[i].name.text,
                     defaultValue: node.declarationList.declarations[i].initializer
                         ? this.classHelper.stringifyDefaultValue(
-                              node.declarationList.declarations[i].initializer
-                          )
+                            node.declarationList.declarations[i].initializer
+                        )
                         : undefined
                 };
                 if (node.declarationList.declarations[i].initializer) {
@@ -1151,4 +1187,5 @@ export class Dependencies {
 
         return res[0] || {};
     }
+
 }
